@@ -4,7 +4,12 @@ Create DIPs from an SS location
 
 Get all AIPs from an existing SS instance, filtering them by location,
 creating DIPs using the create_dip.py script and keeping track of them
-in an SQLite database
+in an SQLite database.
+
+POSSIBLE ENHANCEMENT: Add status to Aip table in database:
+The create_dip.main() function returns different error values, some of
+them could allow a retry of the DIP creation in following executions.
+More info in comments bellow.
 """
 
 import argparse
@@ -21,6 +26,10 @@ import models
 
 THIS_DIR = os.path.abspath(os.path.dirname(__file__))
 LOGGER = logging.getLogger('create_dip')
+
+# POSSIBLE ENHANCEMENT:
+# Create Aip status constants, better in create_dip.py
+# and use them in its returns and in here.
 
 
 def setup_logger(log_file, log_level='INFO'):
@@ -85,12 +94,15 @@ def main(ss_url, ss_user, ss_api_key, location_uuid, tmp_dir, output_dir, databa
     for uuid in aip_uuids:
         try:
             # To avoid race conditions while checking for an existing AIP
-            # and saving it, create the row directly and check for error
+            # and saving it, create the row directly and check for an
+            # integrity error exception (the uuid is a unique column)
             db_aip = models.Aip(uuid=uuid)
             session.add(db_aip)
             session.commit()
         except exc.IntegrityError:
             session.rollback()
+            # POSSIBLE ENHANCEMENT:
+            # Check Aip status and allow retry in some of them
             LOGGER.debug('Skipping AIP (already processed/processing): %s', uuid)
             continue
 
@@ -102,6 +114,9 @@ def main(ss_url, ss_user, ss_api_key, location_uuid, tmp_dir, output_dir, databa
             tmp_dir=tmp_dir,
             output_dir=output_dir
         )
+
+        # POSSIBLE ENHANCEMENT:
+        # Save return value from create_dip.main() and update Aip status
 
     LOGGER.info('All AIPs have been processed')
 
