@@ -1,6 +1,10 @@
 #!/usr/bin/env python
 """
 Create DIPs from an SS location
+
+Get all AIPs from an existing SS instance, filtering them by location,
+creating DIPs using the create_dip.py script and keeping track of them
+in an SQLite database
 """
 
 import argparse
@@ -9,6 +13,8 @@ import logging.config  # Has to be imported separately
 import os
 import sys
 
+from transfers import amclient
+import create_dip
 
 THIS_DIR = os.path.abspath(os.path.dirname(__file__))
 LOGGER = logging.getLogger('create_dip')
@@ -53,7 +59,67 @@ def setup_logger(log_file, log_level='INFO'):
 
 
 def main(ss_url, ss_user, ss_api_key, location_uuid, tmp_dir, output_dir):
-    LOGGER.info('Starting DIPs creation from SS location: %s', location_uuid)
+    LOGGER.info('Processing AIPs in SS location: %s', location_uuid)
+
+    # TODO: Check/Create database
+
+    # Get UPLOADED and VERIFIED AIPs from the SS
+    am_client = amclient.AMClient(
+        ss_url=ss_url,
+        ss_user_name=ss_user,
+        ss_api_key=ss_api_key)
+    # There is an issue in the SS API that avoids
+    # filtering the results by location. See:
+    # https://github.com/artefactual/archivematica-storage-service/issues/298
+    aips = am_client.aips({'status__in': 'UPLOADED,VERIFIED'})
+
+    # Get only not processed AIPs from the specified location
+    aip_uuids = filter_aips(aips, location_uuid)
+
+    # Create DIPs for those AIPs
+    for uuid in aip_uuids:
+        re = create_dip.main(
+            ss_url=ss_url,
+            ss_user=ss_user,
+            ss_api_key=ss_api_key,
+            aip_uuid=uuid,
+            tmp_dir=tmp_dir,
+            output_dir=output_dir
+        )
+
+        # Do nothing if the DIP creation failed
+        if re:
+            continue
+
+        # TODO: Create database row
+
+    LOGGER.info('All AIPs have been processed')
+
+
+def filter_aips(aips, location_uuid):
+    """
+    Filters a list of AIPs based on a location UUID.
+
+    :param list aips: list of AIPs from the results of an SS response
+    :param str location_uuid: UUID from the SS location
+    :returns: list of UUIDs from the AIPs in that location
+    """
+    location = '/api/v2/location/{}/'.format(location_uuid)
+    filtered_aips = []
+
+    for aip in aips:
+        if 'current_location' not in aip:
+            LOGGER.debug('Skipping AIP (missing location): %s', aip['uuid'])
+            continue
+        if aip['current_location'] != location:
+            LOGGER.debug('Skipping AIP (different location): %s', aip['uuid'])
+            continue
+        if False:  # TODO: Check database
+            LOGGER.debug('Skipping AIP (already processed): %s', aip['uuid'])
+            continue
+        filtered_aips.append(aip['uuid'])
+
+    return filtered_aips
 
 
 if __name__ == '__main__':
