@@ -6,6 +6,7 @@ cd /usr/lib/archivematica/automation-tools/
   --ss-user <username> \
   --ss-api-key <api_key> \
   --location-uuid <uuid> \
+  --database-file <path> \
   --tmp-dir <path> \
   --output-dir <path> \
   --log-file <path>

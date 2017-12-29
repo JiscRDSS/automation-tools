@@ -13,8 +13,11 @@ import logging.config  # Has to be imported separately
 import os
 import sys
 
+from sqlalchemy import exc
+
 from transfers import amclient
 import create_dip
+import models
 
 THIS_DIR = os.path.abspath(os.path.dirname(__file__))
 LOGGER = logging.getLogger('create_dip')
@@ -58,10 +61,12 @@ def setup_logger(log_file, log_level='INFO'):
     logging.config.dictConfig(CONFIG)
 
 
-def main(ss_url, ss_user, ss_api_key, location_uuid, tmp_dir, output_dir):
+def main(ss_url, ss_user, ss_api_key, location_uuid, tmp_dir, output_dir, database_file):
     LOGGER.info('Processing AIPs in SS location: %s', location_uuid)
 
-    # TODO: Check/Create database
+    # Idempotently create database and Aip table and create session
+    models.init(database_file)
+    session = models.Session()
 
     # Get UPLOADED and VERIFIED AIPs from the SS
     am_client = amclient.AMClient(
@@ -73,12 +78,23 @@ def main(ss_url, ss_user, ss_api_key, location_uuid, tmp_dir, output_dir):
     # https://github.com/artefactual/archivematica-storage-service/issues/298
     aips = am_client.aips({'status__in': 'UPLOADED,VERIFIED'})
 
-    # Get only not processed AIPs from the specified location
+    # Get only AIPs from the specified location
     aip_uuids = filter_aips(aips, location_uuid)
 
     # Create DIPs for those AIPs
     for uuid in aip_uuids:
-        re = create_dip.main(
+        try:
+            # To avoid race conditions while checking for an existing AIP
+            # and saving it, create the row directly and check for error
+            db_aip = models.Aip(uuid=uuid)
+            session.add(db_aip)
+            session.commit()
+        except exc.IntegrityError:
+            session.rollback()
+            LOGGER.debug('Skipping AIP (already processed/processing): %s', uuid)
+            continue
+
+        create_dip.main(
             ss_url=ss_url,
             ss_user=ss_user,
             ss_api_key=ss_api_key,
@@ -86,12 +102,6 @@ def main(ss_url, ss_user, ss_api_key, location_uuid, tmp_dir, output_dir):
             tmp_dir=tmp_dir,
             output_dir=output_dir
         )
-
-        # Do nothing if the DIP creation failed
-        if re:
-            continue
-
-        # TODO: Create database row
 
     LOGGER.info('All AIPs have been processed')
 
@@ -108,14 +118,14 @@ def filter_aips(aips, location_uuid):
     filtered_aips = []
 
     for aip in aips:
+        if 'uuid' not in aip:
+            LOGGER.warning('Skipping AIP (missing UUID in SS response)')
+            continue
         if 'current_location' not in aip:
             LOGGER.debug('Skipping AIP (missing location): %s', aip['uuid'])
             continue
         if aip['current_location'] != location:
             LOGGER.debug('Skipping AIP (different location): %s', aip['uuid'])
-            continue
-        if False:  # TODO: Check database
-            LOGGER.debug('Skipping AIP (already processed): %s', aip['uuid'])
             continue
         filtered_aips.append(aip['uuid'])
 
@@ -128,9 +138,10 @@ if __name__ == '__main__':
     parser.add_argument('--ss-url', metavar='URL', help='Storage Service URL. Default: http://127.0.0.1:8000', default='http://127.0.0.1:8000')
     parser.add_argument('--ss-user', metavar='USERNAME', required=True, help='Username of the Storage Service user to authenticate as.')
     parser.add_argument('--ss-api-key', metavar='KEY', required=True, help='API key of the Storage Service user.')
-    parser.add_argument('--location-uuid', metavar='UUID', required=True, help='UUID of an AIP Storage location in the Storage Service')
-    parser.add_argument('--tmp-dir', metavar='PATH', help='Absolute path to the directory used for temporary files. Default: /tmp', default='/tmp')
-    parser.add_argument('--output-dir', metavar='PATH', help='Absolute path to the directory used to place the final DIP. Default: /tmp', default='/tmp')
+    parser.add_argument('--location-uuid', metavar='UUID', required=True, help='UUID of an AIP Storage location in the Storage Service.')
+    parser.add_argument('--database-file', metavar='PATH', required=True, help='Absolute path to an SQLite database file.')
+    parser.add_argument('--tmp-dir', metavar='PATH', help='Absolute path to the directory used for temporary files. Default: /tmp.', default='/tmp')
+    parser.add_argument('--output-dir', metavar='PATH', help='Absolute path to the directory used to place the final DIP. Default: /tmp.', default='/tmp')
 
     # Logging
     parser.add_argument('--log-file', metavar='FILE', help='Location of log file', default=None)
@@ -162,5 +173,6 @@ if __name__ == '__main__':
         ss_api_key=args.ss_api_key,
         location_uuid=args.location_uuid,
         tmp_dir=args.tmp_dir,
-        output_dir=args.output_dir
+        output_dir=args.output_dir,
+        database_file=args.database_file
     ))
