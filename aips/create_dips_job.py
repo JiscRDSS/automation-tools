@@ -21,8 +21,8 @@ import sys
 from sqlalchemy import exc
 
 from transfers import amclient
-import create_dip
-import models
+from aips import create_dip
+from aips import models
 
 THIS_DIR = os.path.abspath(os.path.dirname(__file__))
 LOGGER = logging.getLogger('create_dip')
