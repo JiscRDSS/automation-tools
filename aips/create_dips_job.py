@@ -74,8 +74,12 @@ def main(ss_url, ss_user, ss_api_key, location_uuid, tmp_dir, output_dir, databa
     LOGGER.info('Processing AIPs in SS location: %s', location_uuid)
 
     # Idempotently create database and Aip table and create session
-    models.init(database_file)
-    session = models.Session()
+    try:
+        models.init(database_file)
+        session = models.Session()
+    except IOError:
+        LOGGER.error('Could not create database in: %s', database_file)
+        return 1
 
     # Get UPLOADED and VERIFIED AIPs from the SS
     am_client = amclient.AMClient(
