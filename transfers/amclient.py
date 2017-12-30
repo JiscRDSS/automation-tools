@@ -515,11 +515,12 @@ class AMClient:
             response = self.get_next_package_page(next_)
         else:
             response = self.get_package(params)
-        if response:
-            packages = packages + response['objects']
-            if response['meta']['next']:
-                packages = self.get_all_packages(
-                    params, packages, response['meta']['next'])
+        if not response:
+            raise Exception('Error connecting to the SS')
+        packages = packages + response['objects']
+        if response['meta']['next']:
+            packages = self.get_all_packages(
+                params, packages, response['meta']['next'])
         return packages
 
     def aip2dips(self):

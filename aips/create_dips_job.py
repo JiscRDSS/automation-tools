@@ -82,14 +82,18 @@ def main(ss_url, ss_user, ss_api_key, location_uuid, tmp_dir, output_dir, databa
         return 1
 
     # Get UPLOADED and VERIFIED AIPs from the SS
-    am_client = amclient.AMClient(
-        ss_url=ss_url,
-        ss_user_name=ss_user,
-        ss_api_key=ss_api_key)
-    # There is an issue in the SS API that avoids
-    # filtering the results by location. See:
-    # https://github.com/artefactual/archivematica-storage-service/issues/298
-    aips = am_client.aips({'status__in': 'UPLOADED,VERIFIED'})
+    try:
+        am_client = amclient.AMClient(
+            ss_url=ss_url,
+            ss_user_name=ss_user,
+            ss_api_key=ss_api_key)
+        # There is an issue in the SS API that avoids
+        # filtering the results by location. See:
+        # https://github.com/artefactual/archivematica-storage-service/issues/298
+        aips = am_client.aips({'status__in': 'UPLOADED,VERIFIED'})
+    except Exception as e:
+        LOGGER.error(e)
+        return 2
 
     # Get only AIPs from the specified location
     aip_uuids = filter_aips(aips, location_uuid)
